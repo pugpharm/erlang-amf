@@ -5,7 +5,7 @@
 -module(amf3).
 -author('ruslan@babayev.com').
 
--export([encode/1, decode/1]).
+-export([encode/1, decode/1, decode/4]).
 
 -define(UNDEFINED, 16#00).
 -define(NULL,      16#01).
@@ -21,6 +21,12 @@
 -define(XML,       16#0B).
 -define(BYTEARRAY, 16#0C).
 
+%% IEEE 754 special values
+-define(POS_INFINITY, <<0:1,16#7FF:11,0:52>>).
+-define(NEG_INFINITY, <<1:1,16#7FF:11,0:52>>).
+-define(QNAN,         <<0:1,16#7FF:11,1:1,0:51>>).
+-define(SNAN,         <<0:1,16#7FF:11,0:1,1:51>>).
+
 %% @type members() = [{atom() | binary(), amf3()}].
 %% @type object() = {object, Class::binary(), members()}.
 %% @type date() = {date, MilliSecs::float(), TimeZone::integer()}.
@@ -28,6 +34,7 @@
 %% @type xml() = {xml, Contents::binary()}.
 %% @type array() = [{Key::binary(), Value::amf3()} | amf3()].
 %% @type bytearray() = {bytearray, Bytes::binary()}.
+%% @type double() = float() | '+infinity' | '-infinity' | 'qNaN' | 'sNaN'.
 %% @type amf3() = undefined | null | false | true | integer() |
 %%                double() | binary() | xmldoc() | date() | array() |
 %%                object() | xml() | bytearray().
@@ -61,8 +68,8 @@ decode(<<?TRUE, Rest/binary>>, Strings, Objects, Traits) ->
 decode(<<?INTEGER, Data/binary>>, Strings, Objects, Traits) ->
     {UInt29, Rest} = decode_uint29(Data),
     {uint29_to_int29(UInt29), Rest, Strings, Objects, Traits};
-decode(<<?DOUBLE, Double:64/float, Rest/binary>>, Strings, Objects, Traits) ->
-    {Double, Rest, Strings, Objects, Traits};
+decode(<<?DOUBLE, Data:8/binary, Rest/binary>>, Strings, Objects, Traits) ->
+    {decode_double(Data), Rest, Strings, Objects, Traits};
 decode(<<?STRING, Data/binary>>, Strings, Objects, Traits) ->
     {String, Rest, Strings1} = decode_string(Data, Strings),
     {String, Rest, Strings1, Objects, Traits};
@@ -115,6 +122,14 @@ decode(<<?XML, Data/binary>>, Strings, Objects, Traits) ->
 decode(<<?BYTEARRAY, Data/binary>>, Strings, Objects, Traits) ->
     {ByteArray, Rest, Objects1} =  decode_bytearray(Data, Objects),
     {ByteArray, Rest, Strings, Objects1, Traits}.
+
+%% @doc Decodes IEEE-754 double precision floating-point number.
+%% @spec decode_double(binary()) -> double()
+decode_double(?POS_INFINITY)              -> '+infinity';
+decode_double(?NEG_INFINITY)              -> '-infinity';
+decode_double(<<_:1,16#7FF:11,1:1,_:51>>) -> 'qNaN';
+decode_double(<<_:1,16#7FF:11,0:1,_:51>>) -> 'sNaN';
+decode_double(<<Num:64/float>>)           -> Num.
 
 %% @doc Decodes a value stored by reference.
 %% @spec decode_by_reference(binary(), Tree::refs()) ->
@@ -310,6 +325,14 @@ encode(true, Strings, Objects, Traits) ->
 encode(Integer, Strings, Objects, Traits) when is_integer(Integer) ->
     Bin = encode_int29(Integer),
     {<<?INTEGER, Bin/binary>>, Strings, Objects, Traits};
+encode('+infinity', Strings, Objects, Traits) ->
+    {<<?DOUBLE, ?POS_INFINITY/binary>>, Strings, Objects, Traits};
+encode('-infinity', Strings, Objects, Traits) ->
+    {<<?DOUBLE, ?NEG_INFINITY/binary>>, Strings, Objects, Traits};
+encode('qNaN', Strings, Objects, Traits) ->
+    {<<?DOUBLE, ?QNAN/binary>>, Strings, Objects, Traits};
+encode('sNaN', Strings, Objects, Traits) ->
+    {<<?DOUBLE, ?SNAN/binary>>, Strings, Objects, Traits};
 encode(Double, Strings, Objects, Traits) when is_float(Double) ->
     {<<?DOUBLE, Double/float>>, Strings, Objects, Traits};
 encode(String, Strings, Objects, Traits) when is_binary(String) ->
@@ -344,7 +367,7 @@ encode(Array, Strings, Objects, Traits) when is_list(Array) ->
 	    {DenseBin, Strings3, Objects3, Traits3} =
 		encode_dense(DenseList, <<>>, Strings2, Objects2, Traits2),
 	    Bin = <<?ARRAY, DenseLen/binary, AssocBin/binary,
-		   DenseBin/binary>>,
+		    DenseBin/binary>>,
 	    {Bin, Strings3, Objects3, Traits3}
     end;
 encode({object, Class, Members} = Object, Strings, Objects, Traits) ->
