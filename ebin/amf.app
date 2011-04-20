@@ -3,7 +3,8 @@
  [{description, "Action Message Format Library"},
   {vsn, "1.0.1"},
   {modules, [amf, amf0, amf3, amf_AbstractMessage, amf_AsyncMessage,
-	     amf_CommandMessage, amf_AcknowledgeMessage]},
+	     amf_CommandMessage, amf_AcknowledgeMessage,
+	     amf0_tests, amf3_tests]},
   {registered, []},
   {applications, [kernel, stdlib]},
   {env, []}
